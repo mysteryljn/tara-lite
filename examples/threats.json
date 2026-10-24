@@ -1,0 +1,7 @@
+{
+  "threats": [
+    {"id":"T-001","asset":"diagnostic gateway","severity":5,"likelihood":4,"treatment":"authenticate diagnostic sessions"},
+    {"id":"T-002","asset":"OTA package","severity":5,"likelihood":3,"treatment":"verify signature and anti-rollback"},
+    {"id":"T-003","asset":"telemetry","severity":2,"likelihood":2,"treatment":"minimize retained data"}
+  ]
+}
