@@ -14,4 +14,19 @@ class TaraTests(unittest.TestCase):
         with self.assertRaisesRegex(ValueError, r"threats\[0\] missing asset, likelihood"):
             analyze({"threats":[{"id":"T-001","severity":3}]})
 
+    def test_duplicate_threat_ids_are_rejected(self):
+        with self.assertRaisesRegex(ValueError, r"threats\[1\] duplicate id 'T-001'"):
+            analyze({"threats":[
+                {"id":"T-001","asset":"gateway","severity":5,"likelihood":5},
+                {"id":"T-001","asset":"ota","severity":4,"likelihood":5},
+            ]})
+
+    def test_malformed_model_shape_is_rejected_with_value_error(self):
+        with self.assertRaisesRegex(ValueError, "model must be an object"):
+            analyze([])
+        with self.assertRaisesRegex(ValueError, "threats must be an array"):
+            analyze({"threats": {"id": "T-001"}})
+        with self.assertRaisesRegex(ValueError, r"threats\[0\] must be an object"):
+            analyze({"threats": ["T-001"]})
+
 if __name__=="__main__": unittest.main()

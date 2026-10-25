@@ -6,14 +6,30 @@ from pathlib import Path
 LEVELS=((20,"CRITICAL"),(12,"HIGH"),(6,"MEDIUM"),(0,"LOW"))
 
 def analyze(model):
+    # JSON input is untrusted. Validate the document shape before accessing
+    # fields so malformed models produce a useful ValueError for callers and
+    # the CLI instead of an uncaught AttributeError or TypeError.
+    if not isinstance(model, dict):
+        raise ValueError("model must be an object")
+    threats = model.get("threats", [])
+    if not isinstance(threats, list):
+        raise ValueError("threats must be an array")
     results=[]
-    for index,threat in enumerate(model.get("threats",[])):
+    seen_ids=[]
+    for index,threat in enumerate(threats):
+        if not isinstance(threat, dict):
+            raise ValueError(f"threats[{index}] must be an object")
         required=("id","asset","severity","likelihood"); missing=[key for key in required if key not in threat]
         if missing:
             # Python versions before 3.12 reject the nested quote style in
             # the original f-string replacement field at parse time.
             missing_fields = ", ".join(missing)
             raise ValueError(f"threats[{index}] missing {missing_fields}")
+        threat_id = threat["id"]
+        duplicate_index = next((previous for previous, previous_id in enumerate(seen_ids) if previous_id == threat_id), None)
+        if duplicate_index is not None:
+            raise ValueError(f"threats[{index}] duplicate id {threat_id!r} (already used at threats[{duplicate_index}])")
+        seen_ids.append(threat_id)
         severity=threat["severity"]; likelihood=threat["likelihood"]
         if isinstance(severity, bool) or not isinstance(severity, int) or not 1<=severity<=5:
             raise ValueError(f"threat {threat['id']}: severity must be an integer 1..5")
