@@ -25,6 +25,31 @@ class TaraTests(unittest.TestCase):
                 {"id":"T-001","asset":"ota","severity":4,"likelihood":5},
             ]})
 
+    def test_duplicate_id_check_scales_linearly_for_large_models(self):
+        # A list scan compares every new ID with all earlier IDs.  Use a
+        # string subclass to make that accidental quadratic work observable;
+        # the dictionary based check should not compare distinct hashes.
+        class CountingId(str):
+            comparisons = 0
+            __hash__ = str.__hash__
+
+            def __eq__(self, other):
+                type(self).comparisons += 1
+                return super().__eq__(other)
+
+        threats = [{
+            "id": CountingId("T-%05d" % index),
+            "asset": "gateway",
+            "severity": 1,
+            "likelihood": 1,
+        } for index in range(2000)]
+        results = analyze({"threats": threats})
+        self.assertEqual(len(results), len(threats))
+        # Sorting equal-score rows still compares some neighboring IDs, so
+        # allow that linear work while rejecting the millions of comparisons
+        # produced by a list scan.
+        self.assertLess(CountingId.comparisons, 10000)
+
     def test_threat_ids_must_be_non_empty_strings(self):
         base = {"asset": "gateway", "severity": 5, "likelihood": 5}
         for invalid_id in (None, 1, [], ""):
@@ -57,6 +82,20 @@ class TaraTests(unittest.TestCase):
             output_path = Path(temporary_directory) / "missing" / "results.json"
             with patch("builtins.print") as print_mock:
                 exit_code = main([str(model_path), "--output", str(output_path)])
+
+            self.assertEqual(exit_code, 2)
+            print_mock.assert_called_once()
+            self.assertTrue(print_mock.call_args[0][0].startswith("error: "))
+
+    def test_deeply_nested_json_is_reported_without_traceback(self):
+        # Python's JSON decoder raises RecursionError for sufficiently deep
+        # nesting.  A malformed model must produce a regular CLI error so a
+        # security-analysis pipeline can continue and report the bad input.
+        with TemporaryDirectory() as temporary_directory:
+            model_path = Path(temporary_directory) / "deep.json"
+            model_path.write_text("[" * 3000 + "]" * 3000, encoding="utf-8")
+            with patch("builtins.print") as print_mock:
+                exit_code = main([str(model_path)])
 
             self.assertEqual(exit_code, 2)
             print_mock.assert_called_once()

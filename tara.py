@@ -15,7 +15,10 @@ def analyze(model):
     if not isinstance(threats, list):
         raise ValueError("threats must be an array")
     results=[]
-    seen_ids=[]
+    # IDs are unique string keys, so a mapping gives constant-time duplicate
+    # detection.  Scanning a list for every threat made large models take
+    # quadratic time and allowed an untrusted input to exhaust CI resources.
+    seen_ids={}
     for index,threat in enumerate(threats):
         if not isinstance(threat, dict):
             raise ValueError(f"threats[{index}] must be an object")
@@ -28,23 +31,33 @@ def analyze(model):
         threat_id = threat["id"]
         if not isinstance(threat_id, str) or not threat_id.strip():
             raise ValueError(f"threats[{index}] id must be a non-empty string")
-        duplicate_index = next((previous for previous, previous_id in enumerate(seen_ids) if previous_id == threat_id), None)
+        duplicate_index = seen_ids.get(threat_id)
         if duplicate_index is not None:
             raise ValueError(f"threats[{index}] duplicate id {threat_id!r} (already used at threats[{duplicate_index}])")
-        seen_ids.append(threat_id)
+        seen_ids[threat_id] = index
         severity=threat["severity"]; likelihood=threat["likelihood"]
         if isinstance(severity, bool) or not isinstance(severity, int) or not 1<=severity<=5:
             raise ValueError(f"threat {threat['id']}: severity must be an integer 1..5")
         if isinstance(likelihood, bool) or not isinstance(likelihood, int) or not 1<=likelihood<=5:
             raise ValueError(f"threat {threat['id']}: likelihood must be an integer 1..5")
         score=severity*likelihood; level=next(label for minimum,label in LEVELS if score>=minimum)
-        results.append({**threat,"score":score,"risk":level,"priority":"P0" if score>=20 else "P1" if score>=12 else "P2"})
+        result={**threat,"score":score,"risk":level,"priority":"P0" if score>=20 else "P1" if score>=12 else "P2"}
+        # Keep the public result JSON composed of ordinary strings even when
+        # the library API receives a str subclass.  This avoids invoking
+        # user-defined equality methods repeatedly while sorting equal-score
+        # results and keeps output serialization deterministic.
+        result["id"]=threat_id
+        results.append(result)
     return sorted(results,key=lambda item:(-item["score"],item["id"]))
 
 def main(argv=None):
     parser=argparse.ArgumentParser(description="Score a small automotive TARA model"); parser.add_argument("model",type=Path); parser.add_argument("-o","--output",type=Path); args=parser.parse_args(argv)
     try: results=analyze(json.loads(args.model.read_text(encoding="utf-8")))
-    except (OSError,json.JSONDecodeError,ValueError) as exc: print(f"error: {exc}"); return 2
+    # A deeply nested JSON document can exceed the interpreter recursion limit
+    # while decoding.  Model files are external input, so report this as a
+    # normal invalid-model error instead of leaking a traceback and aborting a
+    # CI/security-analysis job.
+    except (OSError,json.JSONDecodeError,ValueError,RecursionError) as exc: print(f"error: {exc}"); return 2
     try:
         payload=json.dumps({"results":results},indent=2,ensure_ascii=False)+"\n"
         if args.output: args.output.write_text(payload,encoding="utf-8")
