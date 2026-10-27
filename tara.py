@@ -26,6 +26,8 @@ def analyze(model):
             missing_fields = ", ".join(missing)
             raise ValueError(f"threats[{index}] missing {missing_fields}")
         threat_id = threat["id"]
+        if not isinstance(threat_id, str) or not threat_id.strip():
+            raise ValueError(f"threats[{index}] id must be a non-empty string")
         duplicate_index = next((previous for previous, previous_id in enumerate(seen_ids) if previous_id == threat_id), None)
         if duplicate_index is not None:
             raise ValueError(f"threats[{index}] duplicate id {threat_id!r} (already used at threats[{duplicate_index}])")
@@ -43,9 +45,11 @@ def main(argv=None):
     parser=argparse.ArgumentParser(description="Score a small automotive TARA model"); parser.add_argument("model",type=Path); parser.add_argument("-o","--output",type=Path); args=parser.parse_args(argv)
     try: results=analyze(json.loads(args.model.read_text(encoding="utf-8")))
     except (OSError,json.JSONDecodeError,ValueError) as exc: print(f"error: {exc}"); return 2
-    payload=json.dumps({"results":results},indent=2,ensure_ascii=False)+"\n"
-    if args.output: args.output.write_text(payload,encoding="utf-8")
-    else: print(payload,end="")
+    try:
+        payload=json.dumps({"results":results},indent=2,ensure_ascii=False)+"\n"
+        if args.output: args.output.write_text(payload,encoding="utf-8")
+        else: print(payload,end="")
+    except (OSError,json.JSONDecodeError,ValueError) as exc: print(f"error: {exc}"); return 2
     return 0
 
 if __name__=="__main__": raise SystemExit(main())
