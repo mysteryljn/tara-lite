@@ -14,6 +14,11 @@ def analyze(model):
     threats = model.get("threats", [])
     if not isinstance(threats, list):
         raise ValueError("threats must be an array")
+    # An absent or empty threat list is not a completed TARA result.  Treating
+    # it as a valid no-findings model lets a truncated/incorrectly generated
+    # input pass a CI gate with an empty report.
+    if not threats:
+        raise ValueError("threats must contain at least one threat")
     results=[]
     # IDs are unique string keys, so a mapping gives constant-time duplicate
     # detection.  Scanning a list for every threat made large models take
@@ -59,7 +64,11 @@ def main(argv=None):
     # CI/security-analysis job.
     except (OSError,json.JSONDecodeError,ValueError,RecursionError) as exc: print(f"error: {exc}"); return 2
     try:
-        payload=json.dumps({"results":results},indent=2,ensure_ascii=False)+"\n"
+        # Threat IDs and other fields come from untrusted JSON.  Escaped lone
+        # surrogates are valid JSON values but cannot be encoded by a strict
+        # UTF-8 terminal/file when ensure_ascii=False is used.  ASCII escaping
+        # keeps reports serializable for every accepted input.
+        payload=json.dumps({"results":results},indent=2,ensure_ascii=True)+"\n"
         if args.output: args.output.write_text(payload,encoding="utf-8")
         else: print(payload,end="")
     except (OSError,json.JSONDecodeError,ValueError) as exc: print(f"error: {exc}"); return 2

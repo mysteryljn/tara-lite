@@ -72,6 +72,14 @@ class TaraTests(unittest.TestCase):
         with self.assertRaisesRegex(ValueError, r"threats\[0\] must be an object"):
             analyze({"threats": ["T-001"]})
 
+    def test_empty_or_missing_threats_are_rejected(self):
+        # A missing or empty threat list could otherwise produce a successful
+        # empty report and let an incomplete TARA input pass CI unnoticed.
+        for model in ({}, {"threats": []}):
+            with self.subTest(model=model):
+                with self.assertRaisesRegex(ValueError, "threats must contain at least one threat"):
+                    analyze(model)
+
     def test_output_write_errors_are_reported_as_cli_errors(self):
         with TemporaryDirectory() as temporary_directory:
             model_path = Path(temporary_directory) / "model.json"
@@ -100,5 +108,24 @@ class TaraTests(unittest.TestCase):
             self.assertEqual(exit_code, 2)
             print_mock.assert_called_once()
             self.assertTrue(print_mock.call_args[0][0].startswith("error: "))
+
+    def test_output_escapes_lone_surrogate_fields(self):
+        # JSON permits escaped surrogate code units, but strict UTF-8 output
+        # cannot encode them when ensure_ascii=False is used.  Reports must
+        # remain serializable for every accepted external model.
+        with TemporaryDirectory() as temporary_directory:
+            model_path = Path(temporary_directory) / "model.json"
+            output_path = Path(temporary_directory) / "results.json"
+            model_path.write_text(
+                '{"threats": [{"id": "\\ud800", "asset": "gateway", "severity": 1, "likelihood": 1}]}',
+                encoding="utf-8",
+            )
+
+            exit_code = main([str(model_path), "--output", str(output_path)])
+
+            self.assertEqual(exit_code, 0)
+            report_bytes = output_path.read_bytes()
+            self.assertNotIn(b"\xef\xbf\xbd", report_bytes)
+            self.assertIn(b"\\ud800", report_bytes)
 
 if __name__=="__main__": unittest.main()
