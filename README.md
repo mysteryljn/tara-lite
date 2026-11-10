@@ -9,3 +9,7 @@
 ## 许可证
 
 MIT
+
+## Archived
+
+This repository is archived and no longer receives feature development. See the maintained replacement [safety-case](https://github.com/mysteryljn/safety-case) for the active workflow. The source history remains available for reference.
